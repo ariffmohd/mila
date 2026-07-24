@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'AI Conference Media Hub',
+  title: 'MILA Conference',
   description: 'Temporary media sharing platform for conference photos and videos.',
 };
 

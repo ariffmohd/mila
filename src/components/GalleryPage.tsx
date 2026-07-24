@@ -10,6 +10,47 @@ export default function GalleryPage() {
   const [loading, setLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<'all' | 'photos' | 'videos'>('all');
   const [selectedDate, setSelectedDate] = useState('');
+  const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
+  const [previewMedia, setPreviewMedia] = useState<MediaFile | null>(null);
+
+  const downloadZip = async () => {
+    const selectedMedia = filteredMedia.filter((item) =>
+      selectedFiles.includes(item.id)
+    );
+
+    const response = await fetch('/api/download-zip', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        files: selectedMedia.map((item) => ({
+          url: item.file_url,
+          filename: item.filename,
+        })),
+      }),
+    });
+
+    if (!response.ok) {
+      alert('Failed to create ZIP');
+      return;
+    }
+
+    const blob = await response.blob();
+
+    const url = window.URL.createObjectURL(blob);
+
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'conference-media.zip';
+
+    document.body.appendChild(link);
+    link.click();
+
+    document.body.removeChild(link);
+
+    window.URL.revokeObjectURL(url);
+  };
 
   const loadMedia = async () => {
     const { data, error } = await supabase
@@ -45,10 +86,48 @@ export default function GalleryPage() {
     { key: 'videos', label: 'Videos' },
   ];
 
+  const toggleSelect = (id: string) => {
+    setSelectedFiles((prev) =>
+      prev.includes(id)
+        ? prev.filter((item) => item !== id)
+        : [...prev, id]
+    );
+  };
+
+  const downloadSelected = async () => {
+    const selectedMedia = filteredMedia.filter((item) =>
+      selectedFiles.includes(item.id)
+    );
+
+    for (const item of selectedMedia) {
+      try {
+        const response = await fetch(item.file_url);
+        const blob = await response.blob();
+
+        const url = window.URL.createObjectURL(blob);
+
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = item.filename;
+        document.body.appendChild(link);
+        link.click();
+
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+
+        // small delay so browser does not block multiple downloads
+        await new Promise((resolve) => setTimeout(resolve, 300));
+
+      } catch (error) {
+        console.error(`Failed downloading ${item.filename}`, error);
+      }
+    }
+  };
+
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(15,23,42,0.04),_transparent_55%)] bg-white px-4 py-8 text-slate-800 sm:px-6 lg:px-8">
       <div className="mx-auto flex max-w-6xl flex-col gap-6">
-        <header className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_18px_50px_-24px_rgba(15,23,42,0.22)]">
+        {/* <header className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_18px_50px_-24px_rgba(15,23,42,0.22)]">
           <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
             <div>
               <p className="text-sm uppercase tracking-[0.35em] text-slate-900">2026 MALAYSIA-CHINA ACADEMIC CONFERENCE ON ARTIFICIAL INTELLIGENCE IN EDUCATION</p>
@@ -56,7 +135,7 @@ export default function GalleryPage() {
               <p className="mt-3 max-w-2xl text-sm text-slate-600 sm:text-base">Browse and download the latest moments shared during the event.</p>
             </div>
           </div>
-        </header>
+        </header> */}
 
         <MediaUploadPanel onUploadComplete={loadMedia} />
 
@@ -127,6 +206,63 @@ export default function GalleryPage() {
           </div>
         </div>
 
+        <div className="mb-3 flex items-center justify-between text-sm text-slate-600">
+
+          <div className="flex items-center gap-4">
+
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={
+                  filteredMedia.length > 0 &&
+                  selectedFiles.length === filteredMedia.length
+                }
+                onChange={() => {
+                  if (selectedFiles.length === filteredMedia.length) {
+                    setSelectedFiles([]);
+                  } else {
+                    setSelectedFiles(filteredMedia.map(item => item.id));
+                  }
+                }}
+                className="h-4 w-4"
+              />
+              <span>Select All</span>
+            </div>
+
+            {/* NEW: Cancel Button - only shows when files are selected */}
+            {selectedFiles.length > 0 && (
+              <button
+                onClick={() => setSelectedFiles([])}
+                className="text-sm font-medium text-rose-500 transition hover:text-rose-600"
+              >
+                Cancel
+              </button>
+            )}
+
+          </div>
+
+
+          <button
+            onClick={downloadSelected}
+            disabled={selectedFiles.length === 0}
+            className="
+    rounded-full
+    border
+    border-slate-300
+    px-4
+    py-2
+    text-sm
+    font-medium
+    disabled:opacity-40
+    hover:bg-slate-50
+    "
+          >
+            Download ({selectedFiles.length})
+          </button>
+
+
+        </div>
+
         {loading ? (
           <div className="rounded-[28px] border border-slate-200 bg-white p-10 text-center text-slate-500 shadow-[0_18px_50px_-24px_rgba(15,23,42,0.18)]">
             loading latest uploads...
@@ -136,34 +272,198 @@ export default function GalleryPage() {
             No {activeFilter === 'all' ? 'media' : activeFilter} has been uploaded yet.
           </div>
         ) : (
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-6">
             {filteredMedia.map((item) => (
-              <article key={item.id} className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_16px_44px_-24px_rgba(15,23,42,0.24)]">
-                {item.file_type === 'video' ? (
-                  <video controls preload="metadata" className="aspect-video w-full bg-slate-950 object-cover">
-                    <source src={item.file_url} />
-                  </video>
-                ) : (
-                  <img src={item.file_url} alt={item.filename} className="aspect-video w-full object-cover" />
-                )}
-                <div className="flex flex-col gap-3 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs uppercase tracking-[0.25em] text-slate-600">{item.file_type}</span>
-                    <span className="text-right text-xs text-slate-500">{new Date(item.uploaded_at).toLocaleString()}</span>
+
+              <div
+                key={item.id}
+                className={`relative overflow-hidden rounded-2xl border ${selectedFiles.includes(item.id)
+                  ? 'border-cyan-400'
+                  : 'border-slate-200'
+                  } bg-white shadow-sm`}
+              >
+
+                <input
+                  type="checkbox"
+                  checked={selectedFiles.includes(item.id)}
+                  onChange={() => toggleSelect(item.id)}
+                  className="absolute left-3 top-3 z-20 h-5 w-5"
+                />
+
+
+                <div className="group relative">
+
+                  {item.file_type === 'video' ? (
+
+                    <video
+                      className="aspect-square w-full bg-black object-contain"
+                    >
+                      <source src={item.file_url} />
+                    </video>
+
+                  ) : (
+
+                    <img
+                      src={item.file_url}
+                      alt={item.filename}
+                      className="aspect-square w-full object-cover"
+                    />
+
+                  )}
+
+
+                  {/* hover zoom area */}
+                  <div
+                    onClick={() => setPreviewMedia(item)}
+                    className="
+ absolute inset-0
+ cursor-zoom-in
+ bg-black/0
+ transition
+ group-hover:bg-black/30
+ "
+                  >
                   </div>
-                  {/* <p className="text-sm text-slate-700">{item.filename}</p> */}
-                  <a
+
+
+                </div>
+
+
+                <div className="flex flex-col gap-2 p-2">
+
+
+                  <div className="flex items-center justify-between">
+
+                    <span
+                      className="
+rounded-full
+bg-slate-100
+px-2
+py-1
+text-[10px]
+uppercase
+tracking-wider
+text-slate-600
+"
+                    >
+                      {item.file_type}
+                    </span>
+
+
+                    <span className="text-[10px] text-slate-500">
+                      {new Date(item.uploaded_at).toLocaleString()}
+                    </span>
+
+
+                  </div>
+
+
+                  {/* <a
                     href={`${item.file_url}?download=${encodeURIComponent(item.filename)}`}
-                    className="w-fit rounded-full border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+                    className="
+block
+w-full
+rounded-full
+border
+border-slate-300
+px-2
+py-1
+text-center
+text-xs
+text-slate-700
+hover:bg-slate-50
+"
                   >
                     Download
-                  </a>
+                  </a> */}
+
+
                 </div>
-              </article>
+
+
+              </div>
+
             ))}
           </div>
         )}
       </div>
+
+      {previewMedia && (
+
+        <div
+          onClick={() => setPreviewMedia(null)}
+          className="
+fixed inset-0
+z-50
+flex
+items-center
+justify-center
+bg-black/80
+p-6
+"
+        >
+
+
+          <button
+            onClick={() => setPreviewMedia(null)}
+            className="
+absolute
+right-6
+top-6
+rounded-full
+bg-black/60
+px-4
+py-2
+text-2xl
+text-white
+"
+          >
+            ✕
+          </button>
+
+
+
+          <div
+            onClick={(e) => e.stopPropagation()}
+          >
+
+            {previewMedia.file_type === 'video' ? (
+
+              <video
+                controls
+                autoPlay
+                className="
+max-h-[90vh]
+max-w-[90vw]
+rounded-xl
+object-contain
+"
+              >
+                <source src={previewMedia.file_url} />
+              </video>
+
+
+            ) : (
+
+              <img
+                src={previewMedia.file_url}
+                className="
+max-h-[90vh]
+max-w-[90vw]
+rounded-xl
+object-contain
+"
+              />
+
+            )}
+
+          </div>
+
+
+        </div>
+
+      )}
+
     </main>
   );
 }
