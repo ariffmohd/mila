@@ -3,7 +3,11 @@
 import { useState, type FormEvent } from 'react';
 import { supabase, bucketName, allowedTypes, maxFileSize, isSupabaseConfigured, supabaseConfigError } from '@/lib/supabase';
 
-export default function MediaUploadPanel() {
+type MediaUploadPanelProps = {
+  onUploadComplete?: () => void;
+};
+
+export default function MediaUploadPanel({ onUploadComplete }: MediaUploadPanelProps) {
   const [files, setFiles] = useState<FileList | null>(null);
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState('');
@@ -68,6 +72,7 @@ export default function MediaUploadPanel() {
 
       setMessage('Files uploaded successfully.');
       setFiles(null);
+      onUploadComplete?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed.');
     } finally {
@@ -76,14 +81,14 @@ export default function MediaUploadPanel() {
   };
 
   return (
-    <section className="rounded-3xl border border-slate-800 bg-slate-900/80 p-6 shadow-xl shadow-slate-950/40">
-      <h2 className="text-2xl font-semibold">Upload media</h2>
-      <p className="mt-2 text-sm text-slate-400">Select multiple photos and videos from your device. Files are public once uploaded.</p>
+    <section className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_18px_50px_-24px_rgba(15,23,42,0.18)]">
+      <h2 className="text-2xl font-semibold text-slate-900">Upload Media</h2>
+      <p className="mt-2 text-sm text-slate-600">Select multiple photos and videos from your device. Files are public once uploaded.</p>
 
       <form onSubmit={handleUpload}>
-        <label className="mt-6 flex cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-cyan-500/50 bg-slate-800/70 px-6 py-10 text-center transition hover:border-cyan-400">
-          <span className="text-lg font-medium">Tap to choose files</span>
-          <span className="mt-2 text-sm text-slate-400">Supported: JPG, PNG, MP4, MOV • Max 500MB per file</span>
+        <label className="mt-6 flex cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-slate-50/80 px-6 py-10 text-center transition hover:border-slate-400 hover:bg-slate-100">
+          <span className="text-lg font-medium text-slate-800">TAP TO CHOOSE FILES</span>
+          <span className="mt-2 text-sm text-slate-500">Supported: JPG, PNG, MP4, MOV • Max 500MB per file</span>
           <input
             type="file"
             multiple
@@ -93,20 +98,20 @@ export default function MediaUploadPanel() {
           />
         </label>
 
-        <div className="mt-4 min-h-6 text-sm text-slate-400">
+        <div className="mt-4 min-h-6 text-sm text-slate-500">
           {files && files.length > 0 ? `${files.length} file(s) selected` : 'No files selected yet.'}
         </div>
 
         <button
           type="submit"
           disabled={uploading}
-          className="mt-6 w-full rounded-2xl bg-cyan-500 px-4 py-3 font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-70"
+          className="mt-6 w-full rounded-2xl bg-black px-4 py-3 font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
         >
-          {uploading ? 'Uploading...' : 'Upload files'}
+          {uploading ? 'uploading...' : 'Upload Files'}
         </button>
 
-        {message && <p className="mt-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-300">{message}</p>}
-        {error && <p className="mt-4 rounded-2xl border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-300">{error}</p>}
+        {message && <p className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{message}</p>}
+        {error && <p className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</p>}
       </form>
     </section>
   );
