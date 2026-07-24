@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { MediaFile } from '@/types/media';
+import MediaUploadPanel from '@/components/MediaUploadPanel';
 
 export default function GalleryPage() {
   const [media, setMedia] = useState<MediaFile[]>([]);
@@ -34,9 +35,10 @@ export default function GalleryPage() {
               <h1 className="mt-2 text-3xl font-semibold sm:text-4xl">Conference highlights</h1>
               <p className="mt-3 max-w-2xl text-sm text-slate-300 sm:text-base">Browse and download the latest moments shared during the event.</p>
             </div>
-            <a href="/upload" className="rounded-full bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400">Upload media</a>
           </div>
         </header>
+
+        <MediaUploadPanel />
 
         {loading ? (
           <div className="rounded-3xl border border-slate-800 bg-slate-900/80 p-10 text-center text-slate-400">Loading latest uploads...</div>
