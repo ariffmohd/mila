@@ -269,7 +269,7 @@ export default function GalleryPage() {
           </div>
         ) : filteredMedia.length === 0 ? (
           <div className="rounded-[28px] border border-slate-200 bg-white p-10 text-center text-slate-500 shadow-[0_18px_50px_-24px_rgba(15,23,42,0.18)]">
-            No {activeFilter === 'all' ? 'media' : activeFilter} has been uploaded yet.
+            No {activeFilter === 'all' ? 'files' : activeFilter} have been uploaded yet.
           </div>
         ) : (
           <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-6">
