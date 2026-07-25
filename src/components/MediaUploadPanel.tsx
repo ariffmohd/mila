@@ -59,23 +59,24 @@ export default function MediaUploadPanel({ onUploadComplete }: MediaUploadPanelP
             for (const file of Array.from(filesToUpload)) {
                 const ext = file.name.split('.').pop()?.toLowerCase();
                 const isImage = ['jpg', 'jpeg', 'png'].includes(ext || '');
-                const isVideo = ['mp4', 'mov'].includes(ext || '');
-                const mimeType = file.type || (isImage ? 'image/jpeg' : isVideo ? 'video/mp4' : '');
+                const mimeType = file.type || (isImage ? 'image/jpeg' : '');
 
-                if (!isImage && !isVideo) {
-                    throw new Error(`Unsupported file type: ${file.name}`);
+                // HARD BLOCK: Throw error if it's not an image
+                if (!isImage) {
+                    throw new Error(`Unsupported file type: ${file.name}. Only photos are allowed.`);
                 }
 
                 if (mimeType && !allowedTypes.includes(mimeType)) {
-                    throw new Error(`Unsupported file type: ${file.name}`);
+                    throw new Error(`Unsupported file type: ${file.name}. Only photos are allowed.`);
                 }
 
                 if (file.size > maxFileSize) {
-                    throw new Error(`File exceeds 500MB limit: ${file.name}`);
+                    throw new Error(`File exceeds limit: ${file.name}`);
                 }
 
                 const safeName = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '-')}`;
-                const folder = isVideo ? 'videos' : 'photos';
+                const folder = 'photos'; // Force all uploads to the photos folder
+
                 const { error: uploadError } = await supabase.storage.from(bucketName).upload(`${folder}/${safeName}`, file, {
                     cacheControl: '3600',
                     upsert: false,
@@ -89,7 +90,7 @@ export default function MediaUploadPanel({ onUploadComplete }: MediaUploadPanelP
                 const { error: dbError } = await supabase.from('media_files').insert({
                     filename: file.name,
                     file_url: publicUrl,
-                    file_type: isVideo ? 'video' : 'image',
+                    file_type: 'image', // Force file_type to image
                     uploaded_at: new Date().toISOString(),
                 });
 
@@ -100,7 +101,7 @@ export default function MediaUploadPanel({ onUploadComplete }: MediaUploadPanelP
             clearInterval(progressInterval);
             setProgress(100);
 
-            setMessage('Files uploaded successfully.');
+            setMessage('Photos uploaded successfully.');
             setFiles(null);
             onUploadComplete?.();
         } catch (err) {
@@ -117,7 +118,8 @@ export default function MediaUploadPanel({ onUploadComplete }: MediaUploadPanelP
         <section className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_18px_50px_-24px_rgba(15,23,42,0.18)]">
             <p className="text-sm uppercase tracking-[0.35em] text-slate-900">2026 MALAYSIA-CHINA ACADEMIC CONFERENCE ON ARTIFICIAL INTELLIGENCE IN EDUCATION</p>
             <h1 className="mt-2 text-3xl font-semibold text-slate-900 sm:text-4xl">GALLERY</h1>
-            <p className="mt-2 text-sm text-slate-600">Select multiple photos and videos from your device. Files are public once uploaded.</p>
+            {/* Updated text to remove mention of videos */}
+            <p className="mt-2 text-sm text-slate-600">Select multiple photos from your device. Files are public once uploaded.</p>
 
             <div className="mt-6">
                 <label
@@ -127,17 +129,18 @@ export default function MediaUploadPanel({ onUploadComplete }: MediaUploadPanelP
                         }`}
                 >
                     <span className={`text-lg font-medium ${uploading ? 'text-cyan-600 text-2xl' : 'text-slate-800'}`}>
-                        {uploading ? `${progress}%` : 'Upload Files'}
+                        {uploading ? `${progress}%` : 'Upload Photos'}
                     </span>
 
-                    {/* The sub-text now stays visible at all times */}
-                    <span className="mt-2 text-sm text-slate-500">Supported Formats: JPG, PNG, MP4, MOV<br />Max File Size: 500MB per file</span>
+                    {/* Updated text to only show image formats */}
+                    {/* <span className="mt-2 text-sm text-slate-500">Supported Formats: JPG, PNG<br />Max File Size: 500MB per file</span> */}
 
                     <input
                         type="file"
                         multiple
                         disabled={uploading}
-                        accept="image/jpeg,image/png,video/mp4,video/quicktime"
+                        // This strictly forces the phone/computer to only show images in the file picker
+                        accept="image/jpeg,image/png"
                         onClick={(e) => {
                             (e.target as HTMLInputElement).value = '';
                         }}

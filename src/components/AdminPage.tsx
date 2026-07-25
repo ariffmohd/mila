@@ -11,7 +11,6 @@ export default function AdminPage() {
   const [media, setMedia] = useState<MediaFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [isDownloading, setIsDownloading] = useState(false);
-  const [activeFilter, setActiveFilter] = useState<'all' | 'photos' | 'videos'>('all');
   const [selectedDate, setSelectedDate] = useState('');
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const [previewMedia, setPreviewMedia] = useState<MediaFile | null>(null);
@@ -29,7 +28,6 @@ export default function AdminPage() {
     setLoading(false);
   };
 
-  // Only load media after successful login
   useEffect(() => {
     if (isAdmin) {
       loadMedia();
@@ -45,18 +43,13 @@ export default function AdminPage() {
   };
 
   const filteredMedia = media.filter((item) => {
+    // HARD BLOCK: Never show videos even if they exist in the database
+    if (item.file_type === 'video') return false;
+    
     const uploadedDate = new Date(item.uploaded_at).toLocaleDateString('en-CA');
     if (selectedDate && uploadedDate !== selectedDate) return false;
-    if (activeFilter === 'photos') return item.file_type === 'image';
-    if (activeFilter === 'videos') return item.file_type === 'video';
     return true;
   });
-
-  const filterButtons: Array<{ key: 'all' | 'photos' | 'videos'; label: string }> = [
-    { key: 'all', label: 'All' },
-    { key: 'photos', label: 'Photos' },
-    { key: 'videos', label: 'Videos' },
-  ];
 
   const toggleSelect = (id: string) => {
     setSelectedFiles((prev) =>
@@ -66,7 +59,6 @@ export default function AdminPage() {
     );
   };
 
-  // Helper to force direct download for a single file without opening a new tab
   const downloadSingleFile = async (url: string, filename: string) => {
     try {
       const response = await fetch(url);
@@ -86,29 +78,16 @@ export default function AdminPage() {
     }
   };
 
-  // NEW: Helper to delete a single file directly from the card
   const deleteSingleFile = async (item: MediaFile) => {
     const confirmed = window.confirm(`Delete this file forever?`);
     if (!confirmed) return;
 
     try {
-      const path = item.file_url
-        .split('/object/public/conference-media/')
-        .pop();
+      const path = item.file_url.split('/object/public/conference-media/').pop();
+      await supabase.storage.from(bucketName).remove([path || item.filename]);
+      await supabase.from('media_files').delete().eq('id', item.id);
 
-      await supabase.storage
-        .from(bucketName)
-        .remove([path || item.filename]);
-
-      await supabase
-        .from('media_files')
-        .delete()
-        .eq('id', item.id);
-
-      // Remove from media array
       setMedia((prev) => prev.filter((m) => m.id !== item.id));
-      
-      // Remove from selected list if it was checked
       setSelectedFiles((prev) => prev.filter((id) => id !== item.id));
     } catch (error) {
       console.error('Error deleting file:', error);
@@ -117,29 +96,23 @@ export default function AdminPage() {
   };
 
   const downloadSelected = async () => {
-    const selectedMedia = filteredMedia.filter((item) =>
-      selectedFiles.includes(item.id)
-    );
-
+    const selectedMedia = filteredMedia.filter((item) => selectedFiles.includes(item.id));
     if (selectedMedia.length === 0) return;
 
     try {
       setIsDownloading(true);
       const zip = new JSZip();
-
       for (const item of selectedMedia) {
         const response = await fetch(item.file_url);
         if (!response.ok) throw new Error(`Failed to fetch ${item.filename}`);
         const blob = await response.blob();
         zip.file(item.filename, blob);
       }
-
       const zipBlob = await zip.generateAsync({ type: 'blob' });
       const url = window.URL.createObjectURL(zipBlob);
       const link = document.createElement('a');
       link.href = url;
       link.download = 'admin-conference-media.zip';
-
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -153,35 +126,16 @@ export default function AdminPage() {
   };
 
   const deleteSelected = async () => {
-    const confirmed = window.confirm(
-      `Delete ${selectedFiles.length} selected files forever?`
-    );
-
+    const confirmed = window.confirm(`Delete ${selectedFiles.length} selected files forever?`);
     if (!confirmed) return;
 
-    const selectedMedia = media.filter((item) =>
-      selectedFiles.includes(item.id)
-    );
-
+    const selectedMedia = media.filter((item) => selectedFiles.includes(item.id));
     for (const item of selectedMedia) {
-      const path = item.file_url
-        .split('/object/public/conference-media/')
-        .pop();
-
-      await supabase.storage
-        .from(bucketName)
-        .remove([path || item.filename]);
-
-      await supabase
-        .from('media_files')
-        .delete()
-        .eq('id', item.id);
+      const path = item.file_url.split('/object/public/conference-media/').pop();
+      await supabase.storage.from(bucketName).remove([path || item.filename]);
+      await supabase.from('media_files').delete().eq('id', item.id);
     }
-
-    setMedia((prev) =>
-      prev.filter((item) => !selectedFiles.includes(item.id))
-    );
-
+    setMedia((prev) => prev.filter((item) => !selectedFiles.includes(item.id)));
     setSelectedFiles([]);
   };
 
@@ -223,39 +177,16 @@ export default function AdminPage() {
         </header>
 
         <div className="flex flex-col gap-4 rounded-[28px] border border-slate-200 bg-white p-4 shadow-[0_18px_50px_-24px_rgba(15,23,42,0.18)] sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-wrap gap-3">
-            {filterButtons.map((filter) => {
-              const isActive = activeFilter === filter.key;
-              return (
-                <button
-                  key={filter.key}
-                  type="button"
-                  onClick={() => setActiveFilter(filter.key)}
-                  className={`rounded-full border px-4 py-2 text-sm font-medium transition ${isActive
-                    ? 'border-black bg-black text-white shadow-sm'
-                    : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-900'
-                    }`}
-                >
-                  {filter.label}
-                </button>
-              );
-            })}
-          </div>
-
-          <span className="text-sm text-slate-600">
-            <span className="font-semibold">Selected Date:</span>{' '}
+          <span className="px-2 text-sm text-slate-600">
+            <span className="font-semibold text-slate-800">Viewing:</span>{' '}
             {selectedDate
-              ? new Date(selectedDate).toLocaleDateString('en-GB', {
-                day: 'numeric',
-                month: 'long',
-                year: 'numeric',
-              })
-              : 'All'}
+              ? new Date(selectedDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+              : 'All Photos'}
           </span>
 
           <div className="flex items-center gap-3 text-sm text-slate-600">
-            <span className="font-medium text-slate-700">Filter by Date</span>
-            <div className="flex items-center gap-3 text-sm text-slate-600">
+            <span className="hidden font-medium text-slate-700 sm:inline">Filter by Date</span>
+            <div className="flex items-center gap-2">
               <div className="relative">
                 <button
                   type="button"
@@ -264,57 +195,49 @@ export default function AdminPage() {
                     input?.showPicker?.();
                     input?.focus();
                   }}
-                  className="flex h-10 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-sm text-slate-700 hover:border-slate-300"
+                  className="flex h-10 items-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-sm font-medium text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
                 >
                   📅 Select Date
                 </button>
-
                 <input
                   id="date-picker"
                   type="date"
                   value={selectedDate}
                   onChange={(e) => setSelectedDate(e.target.value)}
-                  className="absolute opacity-0 pointer-events-none"
+                  className="pointer-events-none absolute opacity-0"
                 />
               </div>
-              <button
-                type="button"
-                onClick={() => setSelectedDate('')}
-                className="rounded-full border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
-              >
-                Clear
-              </button>
+              {selectedDate && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedDate('')}
+                  className="rounded-full border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
+                >
+                  Clear
+                </button>
+              )}
             </div>
           </div>
         </div>
 
         <div className="mb-2">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between text-sm text-slate-600">
-
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
                 <input
                   type="checkbox"
-                  checked={
-                    filteredMedia.length > 0 &&
-                    selectedFiles.length === filteredMedia.length
-                  }
+                  checked={filteredMedia.length > 0 && selectedFiles.length === filteredMedia.length}
                   onChange={() => {
-                    if (selectedFiles.length === filteredMedia.length) {
-                      setSelectedFiles([]);
-                    } else {
-                      setSelectedFiles(filteredMedia.map(item => item.id));
-                    }
+                    if (selectedFiles.length === filteredMedia.length) setSelectedFiles([]);
+                    else setSelectedFiles(filteredMedia.map(item => item.id));
                   }}
                   className="h-4 w-4"
                 />
                 <span>Select All</span>
               </div>
-
               <button
                 onClick={() => setSelectedFiles([])}
-                className={`text-sm font-medium text-rose-500 transition hover:text-rose-600 ${selectedFiles.length > 0 ? 'opacity-100' : 'pointer-events-none opacity-0'
-                  }`}
+                className={`text-sm font-medium text-rose-500 transition hover:text-rose-600 ${selectedFiles.length > 0 ? 'opacity-100' : 'pointer-events-none opacity-0'}`}
               >
                 Cancel
               </button>
@@ -326,9 +249,8 @@ export default function AdminPage() {
                 disabled={selectedFiles.length === 0 || isDownloading}
                 className="tabular-nums whitespace-nowrap rounded-full border border-slate-300 px-4 py-2 text-sm font-medium transition disabled:opacity-40 hover:bg-slate-50"
               >
-                {isDownloading ? 'Zipping...' : `Download ZIP (${selectedFiles.length})`}
+                {isDownloading ? 'Zipping...' : `Download (${selectedFiles.length})`}
               </button>
-
               <button
                 onClick={deleteSelected}
                 disabled={selectedFiles.length === 0 || isDownloading}
@@ -338,11 +260,11 @@ export default function AdminPage() {
               </button>
             </div>
           </div>
-
+          {/* Restored Disclaimer */}
           <div className="mt-2 min-h-[20px]">
             {selectedFiles.length > 0 && (
               <p className="text-[11px] text-slate-400 sm:text-[12px] sm:text-right">
-                * Pro tip: Download in small batches (max 15 videos or 100 photos) to prevent browser freezing.
+                * Pro Tip: Download in small batches (max 100 photos) to prevent browser freezing.
               </p>
             )}
           </div>
@@ -350,11 +272,11 @@ export default function AdminPage() {
 
         {loading ? (
           <div className="rounded-[28px] border border-slate-200 bg-white p-10 text-center text-slate-500 shadow-[0_18px_50px_-24px_rgba(15,23,42,0.18)]">
-            loading latest uploads...
+            loading...
           </div>
         ) : filteredMedia.length === 0 ? (
           <div className="rounded-[28px] border border-slate-200 bg-white p-10 text-center text-slate-500 shadow-[0_18px_50px_-24px_rgba(15,23,42,0.18)]">
-            No {activeFilter === 'all' ? 'files' : activeFilter} have been uploaded yet.
+            No photos uploaded yet.
           </div>
         ) : (
           <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-6">
@@ -362,76 +284,58 @@ export default function AdminPage() {
               <div
                 key={item.id}
                 className={`relative flex flex-col overflow-hidden rounded-2xl border transition-all ${selectedFiles.includes(item.id)
-                    ? 'border-cyan-400 ring-1 ring-cyan-400'
-                    : 'border-slate-200'
+                  ? 'border-cyan-400 ring-1 ring-cyan-400'
+                  : 'border-slate-200'
                   } bg-white shadow-sm`}
               >
                 <div className="group relative bg-slate-100">
-                  {item.file_type === 'video' ? (
-                    <video className="aspect-square w-full object-contain">
-                      <source src={item.file_url} />
-                    </video>
-                  ) : (
-                    <img
-                      src={item.file_url}
-                      alt={item.filename}
-                      className="aspect-square w-full object-cover"
-                    />
-                  )}
-
+                  <img
+                    src={item.file_url}
+                    alt={item.filename}
+                    className="aspect-square w-full object-cover"
+                  />
                   <div
                     onClick={() => setPreviewMedia(item)}
                     className="absolute inset-0 cursor-zoom-in bg-black/0 transition group-hover:bg-black/30"
                   ></div>
                 </div>
 
-                <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50 p-2.5">
-                  <label className="flex cursor-pointer items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={selectedFiles.includes(item.id)}
-                      onChange={() => toggleSelect(item.id)}
-                      className="h-4 w-4 cursor-pointer rounded border-slate-300 text-cyan-500"
-                    />
-                    <span className="rounded-full bg-slate-200/80 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-slate-700">
-                      {item.file_type}
-                    </span>
-                  </label>
+                <div className="flex items-center justify-start gap-2 border-t border-slate-100 bg-slate-50 p-2.5">
+                  <input
+                    type="checkbox"
+                    checked={selectedFiles.includes(item.id)}
+                    onChange={() => toggleSelect(item.id)}
+                    className="h-4 w-4 cursor-pointer rounded border-slate-300 text-cyan-500"
+                  />
+                  
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      downloadSingleFile(item.file_url, item.filename);
+                    }}
+                    className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-200/60 text-slate-600 transition hover:bg-cyan-50 hover:text-cyan-600 hover:ring-1 hover:ring-cyan-200"
+                    title="Download file"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                      <polyline points="7 10 12 15 17 10"></polyline>
+                      <line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg>
+                  </button>
 
-                  {/* Actions wrapper for Download and Delete single file */}
-                  <div className="flex items-center gap-1.5">
-                    {/* Download single file button */}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        downloadSingleFile(item.file_url, item.filename);
-                      }}
-                      className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-200/60 text-slate-600 transition hover:bg-slate-300 hover:text-slate-900"
-                      title="Download file"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                        <polyline points="7 10 12 15 17 10"></polyline>
-                        <line x1="12" y1="15" x2="12" y2="3"></line>
-                      </svg>
-                    </button>
-
-                    {/* NEW: Delete single file button */}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteSingleFile(item);
-                      }}
-                      className="flex h-6 w-6 items-center justify-center rounded-full bg-rose-100/60 text-rose-600 transition hover:bg-rose-200 hover:text-rose-900"
-                      title="Delete file"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="3 6 5 6 21 6"></polyline>
-                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                      </svg>
-                    </button>
-                  </div>
-
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteSingleFile(item);
+                    }}
+                    className="flex h-6 w-6 items-center justify-center rounded-full bg-rose-100/60 text-rose-600 transition hover:bg-rose-200 hover:text-rose-900"
+                    title="Delete file"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="3 6 5 6 21 6"></polyline>
+                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                    </svg>
+                  </button>
                 </div>
               </div>
             ))}
@@ -442,30 +346,19 @@ export default function AdminPage() {
       {previewMedia && (
         <div
           onClick={() => setPreviewMedia(null)}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-6 backdrop-blur-sm"
         >
           <button
             onClick={() => setPreviewMedia(null)}
-            className="absolute right-6 top-6 z-50 rounded-full bg-black/60 px-4 py-2 text-2xl text-white"
+            className="absolute right-6 top-6 z-50 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-xl text-white transition hover:bg-white/20"
           >
             ✕
           </button>
-
           <div onClick={(e) => e.stopPropagation()}>
-            {previewMedia.file_type === 'video' ? (
-              <video
-                controls
-                autoPlay
-                className="max-h-[90vh] max-w-[90vw] rounded-xl object-contain"
-              >
-                <source src={previewMedia.file_url} />
-              </video>
-            ) : (
-              <img
-                src={previewMedia.file_url}
-                className="max-h-[90vh] max-w-[90vw] rounded-xl object-contain"
-              />
-            )}
+            <img
+              src={previewMedia.file_url}
+              className="max-h-[90vh] max-w-[90vw] rounded-xl object-contain shadow-2xl"
+            />
           </div>
         </div>
       )}
