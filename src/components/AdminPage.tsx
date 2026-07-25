@@ -66,6 +66,56 @@ export default function AdminPage() {
     );
   };
 
+  // Helper to force direct download for a single file without opening a new tab
+  const downloadSingleFile = async (url: string, filename: string) => {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error('Network response was not ok');
+      const blob = await response.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (error) {
+      console.error('Error downloading file:', error);
+      alert('Failed to download file.');
+    }
+  };
+
+  // NEW: Helper to delete a single file directly from the card
+  const deleteSingleFile = async (item: MediaFile) => {
+    const confirmed = window.confirm(`Delete this file forever?`);
+    if (!confirmed) return;
+
+    try {
+      const path = item.file_url
+        .split('/object/public/conference-media/')
+        .pop();
+
+      await supabase.storage
+        .from(bucketName)
+        .remove([path || item.filename]);
+
+      await supabase
+        .from('media_files')
+        .delete()
+        .eq('id', item.id);
+
+      // Remove from media array
+      setMedia((prev) => prev.filter((m) => m.id !== item.id));
+      
+      // Remove from selected list if it was checked
+      setSelectedFiles((prev) => prev.filter((id) => id !== item.id));
+    } catch (error) {
+      console.error('Error deleting file:', error);
+      alert('Failed to delete file.');
+    }
+  };
+
   const downloadSelected = async () => {
     const selectedMedia = filteredMedia.filter((item) =>
       selectedFiles.includes(item.id)
@@ -135,7 +185,6 @@ export default function AdminPage() {
     setSelectedFiles([]);
   };
 
-  // 1. The Secure Login Screen - Now perfectly matches the Light Theme!
   if (!isAdmin) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_top,_rgba(15,23,42,0.04),_transparent_55%)] bg-white px-4 py-10 text-slate-800">
@@ -146,6 +195,7 @@ export default function AdminPage() {
             onChange={(e) => setPassword(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && login()}
             className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-base text-slate-900 outline-none transition focus:border-slate-400 focus:bg-white"
+            placeholder="Enter admin password"
           />
           <button onClick={login} className="mt-4 w-full rounded-2xl bg-slate-900 px-4 py-3 font-semibold text-white transition hover:bg-slate-800">
             Login
@@ -155,12 +205,10 @@ export default function AdminPage() {
     );
   }
 
-  // 2. The Main Admin UI
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(15,23,42,0.04),_transparent_55%)] bg-white px-4 py-8 text-slate-800 sm:px-6 lg:px-8">
       <div className="mx-auto flex max-w-6xl flex-col gap-6">
 
-        {/* The Official Event Header - Tailored for Admin */}
         <header className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_18px_50px_-24px_rgba(15,23,42,0.18)]">
           <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
             <div>
@@ -240,7 +288,6 @@ export default function AdminPage() {
           </div>
         </div>
 
-        {/* Download Actions Area */}
         <div className="mb-2">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between text-sm text-slate-600">
 
@@ -292,7 +339,6 @@ export default function AdminPage() {
             </div>
           </div>
 
-          {/* Seamless Disclaimer */}
           <div className="mt-2 min-h-[20px]">
             {selectedFiles.length > 0 && (
               <p className="text-[11px] text-slate-400 sm:text-[12px] sm:text-right">
@@ -352,9 +398,40 @@ export default function AdminPage() {
                     </span>
                   </label>
 
-                  <span className="max-w-[70px] text-right text-[9px] leading-tight text-slate-500 sm:max-w-none">
-                    {new Date(item.uploaded_at).toLocaleString()}
-                  </span>
+                  {/* Actions wrapper for Download and Delete single file */}
+                  <div className="flex items-center gap-1.5">
+                    {/* Download single file button */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        downloadSingleFile(item.file_url, item.filename);
+                      }}
+                      className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-200/60 text-slate-600 transition hover:bg-slate-300 hover:text-slate-900"
+                      title="Download file"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="7 10 12 15 17 10"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                      </svg>
+                    </button>
+
+                    {/* NEW: Delete single file button */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteSingleFile(item);
+                      }}
+                      className="flex h-6 w-6 items-center justify-center rounded-full bg-rose-100/60 text-rose-600 transition hover:bg-rose-200 hover:text-rose-900"
+                      title="Delete file"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="3 6 5 6 21 6"></polyline>
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                      </svg>
+                    </button>
+                  </div>
+
                 </div>
               </div>
             ))}
