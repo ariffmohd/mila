@@ -1,56 +1,19 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabase';
+import { supabase, bucketName } from '@/lib/supabase';
 import type { MediaFile } from '@/types/media';
 import MediaUploadPanel from '@/components/MediaUploadPanel';
+import JSZip from 'jszip';
 
 export default function GalleryPage() {
   const [media, setMedia] = useState<MediaFile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isDownloading, setIsDownloading] = useState(false);
   const [activeFilter, setActiveFilter] = useState<'all' | 'photos' | 'videos'>('all');
   const [selectedDate, setSelectedDate] = useState('');
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const [previewMedia, setPreviewMedia] = useState<MediaFile | null>(null);
-
-  const downloadZip = async () => {
-    const selectedMedia = filteredMedia.filter((item) =>
-      selectedFiles.includes(item.id)
-    );
-
-    const response = await fetch('/api/download-zip', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        files: selectedMedia.map((item) => ({
-          url: item.file_url,
-          filename: item.filename,
-        })),
-      }),
-    });
-
-    if (!response.ok) {
-      alert('Failed to create ZIP');
-      return;
-    }
-
-    const blob = await response.blob();
-
-    const url = window.URL.createObjectURL(blob);
-
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'conference-media.zip';
-
-    document.body.appendChild(link);
-    link.click();
-
-    document.body.removeChild(link);
-
-    window.URL.revokeObjectURL(url);
-  };
 
   const loadMedia = async () => {
     const { data, error } = await supabase
@@ -99,43 +62,73 @@ export default function GalleryPage() {
       selectedFiles.includes(item.id)
     );
 
-    for (const item of selectedMedia) {
-      try {
+    if (selectedMedia.length === 0) return;
+
+    try {
+      setIsDownloading(true);
+      const zip = new JSZip();
+
+      for (const item of selectedMedia) {
         const response = await fetch(item.file_url);
+        if (!response.ok) throw new Error(`Failed to fetch ${item.filename}`);
         const blob = await response.blob();
-
-        const url = window.URL.createObjectURL(blob);
-
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = item.filename;
-        document.body.appendChild(link);
-        link.click();
-
-        document.body.removeChild(link);
-        window.URL.revokeObjectURL(url);
-
-        // small delay so browser does not block multiple downloads
-        await new Promise((resolve) => setTimeout(resolve, 300));
-
-      } catch (error) {
-        console.error(`Failed downloading ${item.filename}`, error);
+        zip.file(item.filename, blob);
       }
+
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const url = window.URL.createObjectURL(zipBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'gallery-media.zip';
+
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error generating zip:', error);
+      alert('An error occurred while creating the ZIP file. Please try again.');
+    } finally {
+      setIsDownloading(false);
     }
+  };
+
+  const deleteSelected = async () => {
+    const confirmed = window.confirm(
+      `Delete ${selectedFiles.length} selected files?`
+    );
+
+    if (!confirmed) return;
+
+    const selectedMedia = media.filter((item) =>
+      selectedFiles.includes(item.id)
+    );
+
+    for (const item of selectedMedia) {
+      const path = item.file_url
+        .split('/object/public/conference-media/')
+        .pop();
+
+      await supabase.storage
+        .from(bucketName)
+        .remove([path || item.filename]);
+
+      await supabase
+        .from('media_files')
+        .delete()
+        .eq('id', item.id);
+    }
+
+    setMedia((prev) =>
+      prev.filter((item) => !selectedFiles.includes(item.id))
+    );
+
+    setSelectedFiles([]);
   };
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(15,23,42,0.04),_transparent_55%)] bg-white px-4 py-8 text-slate-800 sm:px-6 lg:px-8">
       <div className="mx-auto flex max-w-6xl flex-col gap-6">
-        {/* <header className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_18px_50px_-24px_rgba(15,23,42,0.22)]">
-          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-            <div>
-              <p className="text-sm uppercase tracking-[0.35em] text-slate-900">2026 MALAYSIA-CHINA ACADEMIC CONFERENCE ON ARTIFICIAL INTELLIGENCE IN EDUCATION</p>
-              <h1 className="mt-2 text-3xl font-semibold text-slate-900 sm:text-4xl">GALLERY</h1>
-              <p className="mt-3 max-w-2xl text-sm text-slate-600 sm:text-base">Browse and download the latest moments shared during the event.</p>
-            </div>
-          </div>
-        </header> */}
 
         <MediaUploadPanel onUploadComplete={loadMedia} />
 
@@ -202,65 +195,73 @@ export default function GalleryPage() {
                 Clear
               </button>
             </div>
-            {/* <span className="text-xs text-slate-500">{selectedDate ? `showing uploads for ${selectedDate}` : 'showing all dates'}</span> */}
           </div>
         </div>
 
-        <div className="mb-3 flex items-center justify-between text-sm text-slate-600">
+        {/* Download Actions Area */}
+        <div className="mb-2">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between text-sm text-slate-600">
 
-          <div className="flex items-center gap-4">
-
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={
-                  filteredMedia.length > 0 &&
-                  selectedFiles.length === filteredMedia.length
-                }
-                onChange={() => {
-                  if (selectedFiles.length === filteredMedia.length) {
-                    setSelectedFiles([]);
-                  } else {
-                    setSelectedFiles(filteredMedia.map(item => item.id));
+            {/* LEFT SIDE: Select All & Cancel */}
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={
+                    filteredMedia.length > 0 &&
+                    selectedFiles.length === filteredMedia.length
                   }
-                }}
-                className="h-4 w-4"
-              />
-              <span>Select All</span>
-            </div>
+                  onChange={() => {
+                    if (selectedFiles.length === filteredMedia.length) {
+                      setSelectedFiles([]);
+                    } else {
+                      setSelectedFiles(filteredMedia.map(item => item.id));
+                    }
+                  }}
+                  className="h-4 w-4"
+                />
+                <span>Select All</span>
+              </div>
 
-            {/* NEW: Cancel Button - only shows when files are selected */}
-            {selectedFiles.length > 0 && (
+              {/* FIX: Make Cancel button invisible instead of removing it, so it never shifts layout */}
               <button
                 onClick={() => setSelectedFiles([])}
-                className="text-sm font-medium text-rose-500 transition hover:text-rose-600"
+                className={`text-sm font-medium text-rose-500 transition hover:text-rose-600 ${selectedFiles.length > 0 ? 'opacity-100' : 'pointer-events-none opacity-0'
+                  }`}
               >
                 Cancel
               </button>
-            )}
+            </div>
 
+            {/* RIGHT SIDE: Download & Delete Buttons */}
+            <div className="flex items-center justify-end gap-2">
+              {/* FIX: Added tabular-nums so the number 1 and 0 take up the exact same width */}
+              <button
+                onClick={downloadSelected}
+                disabled={selectedFiles.length === 0 || isDownloading}
+                className="tabular-nums whitespace-nowrap rounded-full border border-slate-300 px-4 py-2 text-sm font-medium transition disabled:opacity-40 hover:bg-slate-50"
+              >
+                {isDownloading ? 'Zipping...' : `Download ZIP (${selectedFiles.length})`}
+              </button>
+
+              { /*<button
+                onClick={deleteSelected}
+                disabled={selectedFiles.length === 0 || isDownloading}
+                className="tabular-nums whitespace-nowrap rounded-full border border-rose-200 px-4 py-2 text-sm font-medium text-rose-600 transition disabled:opacity-40 hover:border-rose-300 hover:bg-rose-50"
+              >
+                Delete ({selectedFiles.length})
+              </button> */}
+            </div>
           </div>
 
-
-          <button
-            onClick={downloadSelected}
-            disabled={selectedFiles.length === 0}
-            className="
-    rounded-full
-    border
-    border-slate-300
-    px-4
-    py-2
-    text-sm
-    font-medium
-    disabled:opacity-40
-    hover:bg-slate-50
-    "
-          >
-            Download ({selectedFiles.length})
-          </button>
-
-
+          {/* Seamless Disclaimer - Always reserves space so the layout NEVER jumps */}
+          <div className="mt-2 min-h-[20px]">
+            {selectedFiles.length > 0 && (
+              <p className="text-[11px] text-slate-400 sm:text-[12px] sm:text-right">
+                * Pro Tip: Download in small batches (max 15 videos or 100 photos) to avoid browser crashes.
+              </p>
+            )}
+          </div>
         </div>
 
         {loading ? (
@@ -277,110 +278,49 @@ export default function GalleryPage() {
 
               <div
                 key={item.id}
-                className={`relative overflow-hidden rounded-2xl border ${selectedFiles.includes(item.id)
-                  ? 'border-cyan-400'
-                  : 'border-slate-200'
+                className={`relative flex flex-col overflow-hidden rounded-2xl border transition-all ${selectedFiles.includes(item.id)
+                    ? 'border-cyan-400 ring-1 ring-cyan-400'
+                    : 'border-slate-200'
                   } bg-white shadow-sm`}
               >
-
-                <input
-                  type="checkbox"
-                  checked={selectedFiles.includes(item.id)}
-                  onChange={() => toggleSelect(item.id)}
-                  className="absolute left-3 top-3 z-20 h-5 w-5"
-                />
-
-
-                <div className="group relative">
-
+                <div className="group relative bg-slate-100">
                   {item.file_type === 'video' ? (
-
-                    <video
-                      className="aspect-square w-full bg-black object-contain"
-                    >
+                    <video className="aspect-square w-full object-contain">
                       <source src={item.file_url} />
                     </video>
-
                   ) : (
-
                     <img
                       src={item.file_url}
                       alt={item.filename}
                       className="aspect-square w-full object-cover"
                     />
-
                   )}
 
-
-                  {/* hover zoom area */}
                   <div
                     onClick={() => setPreviewMedia(item)}
-                    className="
- absolute inset-0
- cursor-zoom-in
- bg-black/0
- transition
- group-hover:bg-black/30
- "
-                  >
-                  </div>
-
-
+                    className="absolute inset-0 cursor-zoom-in bg-black/0 transition group-hover:bg-black/30"
+                  ></div>
                 </div>
 
+                <div className="flex items-center justify-between border-t border-slate-100 bg-slate-50 p-2.5">
 
-                <div className="flex flex-col gap-2 p-2">
-
-
-                  <div className="flex items-center justify-between">
-
-                    <span
-                      className="
-rounded-full
-bg-slate-100
-px-2
-py-1
-text-[10px]
-uppercase
-tracking-wider
-text-slate-600
-"
-                    >
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={selectedFiles.includes(item.id)}
+                      onChange={() => toggleSelect(item.id)}
+                      className="h-4 w-4 cursor-pointer rounded border-slate-300 text-cyan-500"
+                    />
+                    <span className="rounded-full bg-slate-200/80 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-slate-700">
                       {item.file_type}
                     </span>
+                  </label>
 
-
-                    <span className="text-[10px] text-slate-500">
-                      {new Date(item.uploaded_at).toLocaleString()}
-                    </span>
-
-
-                  </div>
-
-
-                  {/* <a
-                    href={`${item.file_url}?download=${encodeURIComponent(item.filename)}`}
-                    className="
-block
-w-full
-rounded-full
-border
-border-slate-300
-px-2
-py-1
-text-center
-text-xs
-text-slate-700
-hover:bg-slate-50
-"
-                  >
-                    Download
-                  </a> */}
-
+                  <span className="max-w-[70px] text-right text-[9px] leading-tight text-slate-500 sm:max-w-none">
+                    {new Date(item.uploaded_at).toLocaleString()}
+                  </span>
 
                 </div>
-
-
               </div>
 
             ))}
@@ -389,81 +329,35 @@ hover:bg-slate-50
       </div>
 
       {previewMedia && (
-
         <div
           onClick={() => setPreviewMedia(null)}
-          className="
-fixed inset-0
-z-50
-flex
-items-center
-justify-center
-bg-black/80
-p-6
-"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6"
         >
-
-
           <button
             onClick={() => setPreviewMedia(null)}
-            className="
-absolute
-right-6
-top-6
-rounded-full
-bg-black/60
-px-4
-py-2
-text-2xl
-text-white
-"
+            className="absolute right-6 top-6 z-50 rounded-full bg-black/60 px-4 py-2 text-2xl text-white"
           >
             ✕
           </button>
 
-
-
-          <div
-            onClick={(e) => e.stopPropagation()}
-          >
-
+          <div onClick={(e) => e.stopPropagation()}>
             {previewMedia.file_type === 'video' ? (
-
               <video
                 controls
                 autoPlay
-                className="
-max-h-[90vh]
-max-w-[90vw]
-rounded-xl
-object-contain
-"
+                className="max-h-[90vh] max-w-[90vw] rounded-xl object-contain"
               >
                 <source src={previewMedia.file_url} />
               </video>
-
-
             ) : (
-
               <img
                 src={previewMedia.file_url}
-                className="
-max-h-[90vh]
-max-w-[90vw]
-rounded-xl
-object-contain
-"
+                className="max-h-[90vh] max-w-[90vw] rounded-xl object-contain"
               />
-
             )}
-
           </div>
-
-
         </div>
-
       )}
-
     </main>
   );
 }
